@@ -4,6 +4,8 @@ import { clerkClient } from "@clerk/express";
 import axios from "axios";
 import {v2 as cloudinary} from 'cloudinary';
 import FormData from "form-data";
+import fs from "fs";
+import pdf from "pdf-parse/lib/pdf-parse.js";
 
 const AI= new OpenAI({
     apiKey: process.env.GEMINI_API_KEY,
@@ -170,5 +172,146 @@ export const generateImage = async (req, res) => {
         }
         
         res.status(500).json({ error: "Failed to generate image. Please try again later." });
+    }
+}
+
+export const removeImagebackground = async (req, res) => {
+    try{
+        const {userId} = req.auth();
+        const image = req.file;
+        const plan = req.plan;
+        
+        // Validate required fields
+        if (!image) {
+            return res.status(400).json({ error: "image is required" });
+        }
+
+        if(plan !== 'premium' ){
+            return res.status(403).json({
+                error: "This feature is only available for premium users."
+            });
+        }
+
+        const {secure_url} = await cloudinary.uploader.upload(image.path, {
+            transformation: [
+                { 
+                    effect: "background_removal",
+                    background_removal: "remove_the_background"
+
+                }
+            ]
+        });
+        console.log("Image background removed successfully, uploading to Cloudinary...");
+
+        await sql`INSERT INTO creations (user_id, prompt, content, type) 
+        VALUES (${userId}, 'Remove backgroung from image', ${secure_url}, 'image')`;
+
+        console.log("Image saved to database successfully");
+        
+        res.json({success: true, content: secure_url});
+
+    }catch(error) {
+        console.error(error.message);
+        
+        // More specific error messages
+        
+        
+        res.status(500).json({success: false, message: error.message || "Failed to remove image background. Please try again later."});
+    }
+}
+
+export const removeImageOject = async (req, res) => {
+    try{
+        const {userId} = req.auth();
+        const {object} = req.body;
+        const image = req.file;
+        const plan = req.plan;
+        
+        // Validate required fields
+        if (!image) {
+            return res.status(400).json({ error: "image is required" });
+        }
+
+        if(plan !== 'premium' ){
+            return res.status(403).json({
+                error: "This feature is only available for premium users."
+            });
+        }
+
+        const {public_id} = await cloudinary.uploader.upload(image.path);
+
+        const imageUrl = cloudinary.url(public_id,{ 
+            transformation: [
+                { 
+                    effect: `gen_remove:${object}`
+                }
+            ],
+            resource_type: "image"
+        });
+
+        console.log("Image background removed successfully, uploading to Cloudinary...");
+
+        await sql`INSERT INTO creations (user_id, prompt, content, type) 
+        VALUES (${userId}, ${`Removed ${object} from image`}, ${imageUrl}, 'image')`;
+
+        console.log("Image saved to database successfully");
+        
+        res.json({success: true, content: imageUrl});
+
+    }catch(error) {
+        console.error(error.message);
+        res.status(500).json({success: false, message: error.message || "Failed to remove image background. Please try again later."});
+    }
+}
+
+export const resumeReview = async (req, res) => {
+    try{
+        const {userId} = req.auth();
+        const resume = req.file;
+        const plan = req.plan;
+        
+        // Validate required fields
+        if (!resume) {
+            return res.status(400).json({ error: "Resume is required" });
+        }
+
+        if(plan !== 'premium' ){
+            return res.status(403).json({
+                error: "This feature is only available for premium users."
+            });
+        }
+
+        if(resume.size > 5 * 1024 * 1024) { // 5MB limit
+            return res.status(400).json({ error: "Resume file size exceeds the 5MB limit" });
+        }
+
+        const dataBuffer = fs.readFileSync(resume.path)
+        const pdfData = await pdf(dataBuffer);
+
+        const prompt =`Review the resume and provide constructive feedback on its strengths, weakness, and areas for improvement. Resume content:\n\n${pdfData.text}`;
+        const response = await AI.chat.completions.create({
+            model: "gemini-2.0-flash",
+            messages: [{
+                role: "user",
+                content: prompt,
+                },
+            ],
+            temperature: 0.7,
+            max_tokens: 1000,
+        });
+        const content = response.choices[0].message.content;
+
+        console.log("Image background removed successfully, uploading to Cloudinary...");
+
+        await sql`INSERT INTO creations (user_id, prompt, content, type) 
+        VALUES (${userId}, 'Review the uploded resume', ${content}, 'resume-review')`;
+
+        console.log("Image saved to database successfully");
+        
+        res.json({success: true, content});
+
+    }catch(error) {
+        console.error(error.message);
+        res.status(500).json({success: false, message: error.message });
     }
 }

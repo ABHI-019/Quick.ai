@@ -32,7 +32,7 @@ const WriteArticle = () => {
         headers: {Authorization: `Bearer ${await getToken()}`}
       })
 
-      if(data.sucess){
+      if(data.success){
         setContent(data.content)
       }else{
         toast.error(data.message)

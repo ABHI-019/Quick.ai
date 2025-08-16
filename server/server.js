@@ -4,6 +4,8 @@ import 'dotenv/config';
 import { clerkMiddleware, requireAuth } from '@clerk/express';
 import aiRouter from './routes/aiRoutes.js';
 import connectCloudinary from './config/cloudinary.js';
+import userRouter from './routes/userRoutes.js';
+import { auth } from './middlewares/auth.js';
 
 
 const app = express();
@@ -18,7 +20,8 @@ app.get('/', (req, res) => {
 });
 
 // Protected API routes
-app.use('/api/ai', requireAuth(), aiRouter);
+app.use('/api/ai', auth, aiRouter);
+app.use('/api/user', requireAuth(), userRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
